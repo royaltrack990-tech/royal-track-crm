@@ -863,7 +863,9 @@ function PipelineView({ leads, allLeadsCount, onSelectLead, onAddFirst }) {
   return (
     <div className="pipeline">
       {STAGES.map(stage => {
-        const stageLeads = leads.filter(l => l.stage === stage.id);
+        const stageLeads = leads
+          .filter(l => l.stage === stage.id)
+          .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
         return (
           <div className="stage-column" key={stage.id}>
             <div className="stage-header">
@@ -907,7 +909,7 @@ function ListView({ leads, allLeadsCount, onSelectLead, onAddFirst }) {
       </div>
     );
   }
-  const sorted = [...leads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const sorted = [...leads].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
   return (
     <div className="list-view">
       <table className="list-table">
