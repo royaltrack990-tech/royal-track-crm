@@ -75,6 +75,25 @@ const formatAED = (n) => {
   return 'AED ' + Number(n).toLocaleString('en-US');
 };
 
+const formatFileSize = (bytes) => {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
+const getFileTypeInfo = (file) => {
+  const type = file.type || '';
+  const name = file.name || '';
+  const ext = (name.split('.').pop() || '').toUpperCase();
+
+  if (type.startsWith('image/')) return { kind: 'image', ext, badge: '' };
+  if (type === 'application/pdf' || ext === 'PDF') return { kind: 'file', ext: 'PDF', badge: 'pdf' };
+  if (type.includes('word') || ext === 'DOC' || ext === 'DOCX') return { kind: 'file', ext: 'DOC', badge: 'doc' };
+  if (type.includes('sheet') || type.includes('excel') || ext === 'XLS' || ext === 'XLSX' || ext === 'CSV') return { kind: 'file', ext: 'XLS', badge: 'xls' };
+  return { kind: 'file', ext: ext.slice(0, 4) || 'FILE', badge: '' };
+};
+
 const getStage = (id) => STAGES.find(s => s.id === id) || STAGES[0];
 
 const lastActivityTime = (lead) => {
@@ -102,6 +121,7 @@ export default function Page() {
   const [newActivityText, setNewActivityText] = useState('');
   const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState({});
+  const [uploadingFile, setUploadingFile] = useState(null);
 
   const saveTimerRef = useRef(null);
   const skipSaveRef = useRef(true); // skip first save on initial load
@@ -352,6 +372,90 @@ export default function Page() {
     showToast('Lead deleted');
   };
 
+  // ===== FILE UPLOAD =====
+  const handleFileUpload = async (leadId, fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+
+    for (const file of files) {
+      // Quick client-side size check (server enforces 25MB)
+      if (file.size > 25 * 1024 * 1024) {
+        showToast(`${file.name} is too large (max 25 MB)`, true);
+        continue;
+      }
+
+      setUploadingFile(file.name);
+      try {
+        // Dynamic import — only loads on client
+        const { upload } = await import('@vercel/blob/client');
+        const blob = await upload(file.name, file, {
+          access: 'public',
+          handleUploadUrl: '/api/upload',
+        });
+
+        const attachment = {
+          id: 'f_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+          url: blob.url,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          uploadedBy: currentUser,
+          uploadedAt: Date.now(),
+        };
+
+        setLeads(prev => prev.map(l => {
+          if (l.id !== leadId) return l;
+          return {
+            ...l,
+            updatedAt: Date.now(),
+            attachments: [...(l.attachments || []), attachment],
+            activities: [
+              ...(l.activities || []),
+              {
+                id: actId(),
+                type: 'file',
+                content: `Uploaded file: ${file.name}`,
+                user: currentUser,
+                timestamp: Date.now(),
+              },
+            ],
+          };
+        }));
+        showToast(`${file.name} uploaded`);
+      } catch (error) {
+        console.error('Upload error:', error);
+        showToast(`Upload failed: ${error.message || 'unknown error'}`, true);
+      } finally {
+        setUploadingFile(null);
+      }
+    }
+  };
+
+  const deleteAttachment = async (leadId, attachmentId) => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+    const attachment = (lead.attachments || []).find(a => a.id === attachmentId);
+    if (!attachment) return;
+    if (!confirm(`Delete "${attachment.name}"?`)) return;
+
+    // Remove from blob storage (fire and forget — if it fails, file becomes orphaned but it's OK)
+    fetch('/api/upload', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: attachment.url }),
+    }).catch(err => console.warn('Blob delete failed:', err));
+
+    setLeads(prev => prev.map(l => {
+      if (l.id !== leadId) return l;
+      return {
+        ...l,
+        updatedAt: Date.now(),
+        attachments: (l.attachments || []).filter(a => a.id !== attachmentId),
+      };
+    }));
+    showToast('File deleted');
+  };
+
   // ===== FILTERING =====
   const getFilteredLeads = () => {
     let result = [...leads];
@@ -529,6 +633,9 @@ export default function Page() {
           }}
           onDelete={() => deleteLead(detailLead.id)}
           onClose={() => setDetailLeadId(null)}
+          onUploadFiles={(files) => handleFileUpload(detailLead.id, files)}
+          onDeleteAttachment={(attachmentId) => deleteAttachment(detailLead.id, attachmentId)}
+          uploadingFile={uploadingFile}
         />
       )}
 
@@ -866,17 +973,19 @@ function LeadFormModal({ editingId, formData, setFormData, onSave, onClose }) {
 function DetailModal({
   lead, currentUser, newActivityType, setNewActivityType,
   newActivityText, setNewActivityText,
-  onAddActivity, onChangeStage, onEdit, onDelete, onClose
+  onAddActivity, onChangeStage, onEdit, onDelete, onClose,
+  onUploadFiles, onDeleteAttachment, uploadingFile
 }) {
   const stage = getStage(lead.stage);
   const stageIdx = STAGES.findIndex(s => s.id === lead.stage);
   const last = lastActivityTime(lead);
   const activities = [...(lead.activities || [])].reverse();
+  const attachments = [...(lead.attachments || [])].reverse();
   const cleanPhone = (lead.phone || '').replace(/[^0-9+]/g, '');
 
   const icons = {
     call: '📞', note: '📝', meeting: '🤝', email: '✉️',
-    whatsapp: '💬', stage: '🎯'
+    whatsapp: '💬', stage: '🎯', file: '📎'
   };
 
   return (
@@ -1010,6 +1119,50 @@ function DetailModal({
                 </div>
               )}
             </div>
+
+            <div className="detail-section">
+              <div className="files-header">
+                <div className="detail-section-title" style={{ margin: 0 }}>
+                  Files & Documents ({attachments.length})
+                </div>
+                <label className="file-upload-btn">
+                  📎 Upload
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt"
+                    onChange={(e) => {
+                      onUploadFiles(e.target.files);
+                      e.target.value = '';
+                    }}
+                    disabled={!!uploadingFile}
+                  />
+                </label>
+              </div>
+
+              {uploadingFile && (
+                <div className="upload-progress">
+                  <div className="spinner-small"></div>
+                  Uploading {uploadingFile}...
+                </div>
+              )}
+
+              {attachments.length === 0 && !uploadingFile ? (
+                <div className="files-empty">
+                  No files uploaded yet. Click <strong>Upload</strong> to add site visit photos, client PDFs, quotations, or any documents.
+                </div>
+              ) : (
+                <div className="files-grid">
+                  {attachments.map(f => (
+                    <FileCard
+                      key={f.id}
+                      file={f}
+                      onDelete={() => onDeleteAttachment(f.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="detail-side">
@@ -1057,6 +1210,52 @@ function DetailModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FileCard({ file, onDelete }) {
+  const info = getFileTypeInfo(file);
+  const isImage = info.kind === 'image';
+
+  return (
+    <div className="file-card">
+      <button
+        className="file-card-delete"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
+        title="Delete file"
+        aria-label="Delete file"
+      >×</button>
+      <a
+        href={file.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="file-card-link"
+      >
+        {isImage ? (
+          <div
+            className="file-thumb-image"
+            style={{ backgroundImage: `url(${file.url})` }}
+            title={file.name}
+          ></div>
+        ) : (
+          <div className="file-thumb-icon">
+            <div className={`file-icon-badge ${info.badge}`}>{info.ext}</div>
+          </div>
+        )}
+        <div className="file-card-info">
+          <div className="file-card-name" title={file.name}>{file.name}</div>
+          <div className="file-card-meta">
+            <span className="owner-dot">{initials(file.uploadedBy)}</span>
+            <span>{file.uploadedBy}</span>
+            <span>·</span>
+            <span>{formatFileSize(file.size)}</span>
+          </div>
+          <div className="file-card-meta" style={{ marginTop: 2 }}>
+            {relativeTime(file.uploadedAt)}
+          </div>
+        </div>
+      </a>
     </div>
   );
 }
