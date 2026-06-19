@@ -11,11 +11,12 @@ A lead management system for **Royal Track Building Contracting LLC**. Built wit
 - 📋 **List view** — Table format with all leads
 - 📈 **Dashboard** — Team performance, pipeline value, conversion rate
 - 📞 **Activity timeline** — Log calls, notes, meetings, WhatsApp, emails
-- 👤 **Attribution** — Har activity pe pata chalta hai kis user ne kya add kiya hai
+- 📎 **File attachments** — Upload site visit photos, client PDFs, quotations, documents
+- 👤 **Attribution** — Har activity aur file pe pata chalta hai kis user ne kya add kiya
 - ⚠️ **Stale lead alerts** — 7+ din se contact nahi hue leads highlight hote hain
 - 🔄 **Real-time-ish sync** — Tab focus pe automatic refresh + manual refresh button
-- 🌍 **Shared database** — Sab users ek hi data dekhte hain (Vercel KV)
-- 📱 **Mobile responsive** — Phone pe bhi kaam karta hai
+- 🌍 **Shared database** — Sab users ek hi data dekhte hain
+- 📱 **Mobile responsive** — Phone pe bhi kaam karta hai, camera se direct upload
 
 ---
 
@@ -57,23 +58,38 @@ A lead management system for **Royal Track Building Contracting LLC**. Built wit
 1. Vercel mein apne project pe jaayein
 2. Top menu mein **"Storage"** tab click karein
 3. **"Create Database"** click karein
-4. **"KV (Redis)"** select karein
-5. Database name: `royal-track-db` (kuch bhi de sakte hain)
-6. Region: `Frankfurt` ya jo bhi nearest hai
-7. **"Create"** click karein
-8. Database create hone ke baad **"Connect Project"** click karein
-9. Apni `royal-track-crm` project select karein → **"Connect"**
+4. **"Upstash" → "Redis"** select karein
+5. Free plan default mein hi select hota hai
+6. **"Create"** click karein
+7. Database create hone ke baad **"Connect Project"** click karein
+8. Apni `royal-track-crm` project select karein
+9. Custom prefix **"KV"** rakhein (default already KV hai)
+10. **"Connect"** click karein
 
 Vercel automatically saare environment variables add kar dega. 🎉
 
-### Step 4: Redeploy karein
+### Step 4: Vercel Blob (file storage) connect karein
+
+Yeh files (pictures, PDFs) ke liye chahiye:
+
+1. Vercel mein same project ka **"Storage"** tab
+2. **"Create Database"** click karein
+3. **"Blob"** select karein (Vercel ka apna native option)
+4. Free tier automatic mil jata hai (1 GB storage + bandwidth included)
+5. Naam: `royal-track-files` (kuch bhi)
+6. **"Create"** click karein
+7. Project se **"Connect"** karein
+
+Env variable `BLOB_READ_WRITE_TOKEN` automatically add ho jata hai.
+
+### Step 5: Redeploy karein
 
 1. Project ke **"Deployments"** tab pe jaayein
 2. Latest deployment ke saath **"..."** menu → **"Redeploy"**
 3. **"Redeploy"** confirm karein
 4. 1 minute wait... ✅ Done!
 
-### Step 5: Use karein!
+### Step 6: Use karein!
 
 - Vercel automatically aapko ek URL deta hai: `royal-track-crm-xxxxx.vercel.app`
 - Yeh URL teenon users (Nouman, Bilal, Zafar) ko bhej dein
@@ -115,8 +131,10 @@ Phir browser mein `http://localhost:3000` kholein.
 royal-track-crm/
 ├── app/
 │   ├── api/
-│   │   └── leads/
-│   │       └── route.js       ← API endpoint (Vercel KV)
+│   │   ├── leads/
+│   │   │   └── route.js       ← Leads database (Vercel KV)
+│   │   └── upload/
+│   │       └── route.js       ← File uploads (Vercel Blob)
 │   ├── globals.css            ← All styles
 │   ├── layout.js              ← Root layout
 │   └── page.js                ← Main CRM page
@@ -132,10 +150,11 @@ royal-track-crm/
 
 **$0/month** — sab kuch Vercel ke free tier mein hai:
 - Vercel hosting: 100GB bandwidth/month free
-- Vercel KV: 30k commands/month, 256MB storage free
+- Vercel KV (Upstash): 10,000 commands/day, 256MB storage free
+- Vercel Blob: 1GB storage + bandwidth included free
 - GitHub: unlimited private repos free
 
-Aapke 3-user scale pe yeh limits 10+ saal kaafi hain.
+Aapke 3-user scale pe yeh limits saalon kafi hain.
 
 ---
 
