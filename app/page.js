@@ -2,11 +2,19 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+/* ===== CONFIGURATION =====
+   ⚠️ TO CHANGE MASTER PASSWORD: Update the value below.
+   Sirf yeh password jaante hain Royal Track team ke log.
+   Without this password, koi bhi CRM access nahi kar sakta.
+============================================== */
+const MASTER_PASSWORD = 'royaltrack2026';
+
 /* ===== CONSTANTS ===== */
 const USERS = [
-  { name: 'Nouman', role: 'Sales Executive' },
-  { name: 'Bilal', role: 'Sales Executive' },
-  { name: 'Zafar', role: 'Sales Executive' },
+  { name: 'Mr. Nouman', role: 'Sales Executive' },
+  { name: 'Mr. Bilal',  role: 'Sales Executive' },
+  { name: 'Mr. Zafar',  role: 'Sales Executive' },
+  { name: 'Mr. Husham', role: 'Sales Executive' },
 ];
 
 const STAGES = [
@@ -38,7 +46,11 @@ const actId = () => 'a_' + Date.now().toString(36) + Math.random().toString(36).
 
 const initials = (name) => {
   if (!name) return '?';
-  return name.trim().split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
+  // Strip honorifics (Mr./Mrs./Ms./Dr.) for clean initials
+  const cleaned = name.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Dr\.?)\s+/i, '').trim();
+  const parts = cleaned.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return parts.map(s => s[0]).join('').slice(0, 2).toUpperCase();
 };
 
 const formatDate = (ts) => {
@@ -106,6 +118,10 @@ const lastActivityTime = (lead) => {
 
 /* ===== MAIN COMPONENT ===== */
 export default function Page() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +131,8 @@ export default function Page() {
   const [search, setSearch] = useState('');
   const [filterUser, setFilterUser] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [leadModal, setLeadModal] = useState({ open: false, editingId: null });
   const [detailLeadId, setDetailLeadId] = useState(null);
   const [newActivityType, setNewActivityType] = useState('call');
@@ -122,6 +140,7 @@ export default function Page() {
   const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState({});
   const [uploadingFile, setUploadingFile] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const saveTimerRef = useRef(null);
   const skipSaveRef = useRef(true); // skip first save on initial load
@@ -160,12 +179,20 @@ export default function Page() {
     }
   }, []);
 
-  // Initial load + restore user session
+  // Initial load + restore user session + check master password
   useEffect(() => {
-    const savedUser = typeof window !== 'undefined' && sessionStorage.getItem('rt_current_user');
-    if (savedUser && USERS.find(u => u.name === savedUser)) {
-      setCurrentUser(savedUser);
+    if (typeof window !== 'undefined') {
+      // Check master password (saved permanently in localStorage)
+      const authed = localStorage.getItem('rt_authenticated') === 'true';
+      setIsAuthenticated(authed);
+
+      // Restore current user session
+      const savedUser = sessionStorage.getItem('rt_current_user');
+      if (savedUser && USERS.find(u => u.name === savedUser)) {
+        setCurrentUser(savedUser);
+      }
     }
+    setAuthChecked(true);
     fetchLeads().finally(() => setLoading(false));
   }, [fetchLeads]);
 
@@ -217,6 +244,19 @@ export default function Page() {
     setTimeout(() => setToast(null), 2400);
   };
 
+  const handleMasterPassword = (e) => {
+    if (e) e.preventDefault();
+    if (passwordInput === MASTER_PASSWORD) {
+      localStorage.setItem('rt_authenticated', 'true');
+      setIsAuthenticated(true);
+      setPasswordInput('');
+      setPasswordError('');
+    } else {
+      setPasswordError('Incorrect password. Please try again.');
+      setPasswordInput('');
+    }
+  };
+
   const handleLogin = (userName) => {
     sessionStorage.setItem('rt_current_user', userName);
     setCurrentUser(userName);
@@ -226,6 +266,14 @@ export default function Page() {
   const handleLogout = () => {
     sessionStorage.removeItem('rt_current_user');
     setCurrentUser(null);
+  };
+
+  const handleFullLogout = () => {
+    if (!confirm('Full logout will require master password next time. Continue?')) return;
+    sessionStorage.removeItem('rt_current_user');
+    localStorage.removeItem('rt_authenticated');
+    setCurrentUser(null);
+    setIsAuthenticated(false);
   };
 
   const openLeadModal = (leadId = null) => {
@@ -456,6 +504,28 @@ export default function Page() {
     showToast('File deleted');
   };
 
+  // ===== DELETE ACTIVITY =====
+  const deleteActivity = (leadId, activityId) => {
+    if (!confirm('Delete this activity entry? This cannot be undone.')) return;
+    setLeads(prev => prev.map(l => {
+      if (l.id !== leadId) return l;
+      return {
+        ...l,
+        updatedAt: Date.now(),
+        activities: (l.activities || []).filter(a => a.id !== activityId),
+      };
+    }));
+    showToast('Activity deleted');
+  };
+
+  // ===== BULK IMPORT FROM EXCEL =====
+  const importLeads = (newLeads) => {
+    if (!newLeads || newLeads.length === 0) return;
+    setLeads(prev => [...prev, ...newLeads]);
+    showToast(`Successfully imported ${newLeads.length} leads`);
+    setImportModalOpen(false);
+  };
+
   // ===== FILTERING =====
   const getFilteredLeads = () => {
     let result = [...leads];
@@ -471,18 +541,69 @@ export default function Page() {
     }
     if (filterUser !== 'all') result = result.filter(l => l.assignedTo === filterUser);
     if (filterSource !== 'all') result = result.filter(l => l.source === filterSource);
+
+    // Date range filter — applied on createdAt
+    if (dateFrom) {
+      const fromTs = new Date(dateFrom + 'T00:00:00').getTime();
+      result = result.filter(l => (l.createdAt || 0) >= fromTs);
+    }
+    if (dateTo) {
+      const toTs = new Date(dateTo + 'T23:59:59').getTime();
+      result = result.filter(l => (l.createdAt || 0) <= toTs);
+    }
     return result;
   };
 
-  // ===== RENDER: LOGIN =====
+  const clearDateRange = () => {
+    setDateFrom('');
+    setDateTo('');
+  };
+
+  const hasActiveFilters = !!(search || filterUser !== 'all' || filterSource !== 'all' || dateFrom || dateTo);
+
+  // ===== RENDER: MASTER PASSWORD =====
+  if (!authChecked) {
+    return null; // Avoid flicker while checking auth state
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-brand">
+            <img src="/logo.png" alt="Royal Track Building Contracting" className="login-logo" />
+          </div>
+          <div className="login-eyebrow">🔒 Secure Access · Authorized personnel only</div>
+          <form onSubmit={handleMasterPassword} className="master-password-form">
+            <div className="form-group">
+              <label className="form-label">Enter access password</label>
+              <input
+                type="password"
+                className="form-input"
+                value={passwordInput}
+                onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(''); }}
+                placeholder="••••••••"
+                autoFocus
+              />
+              {passwordError && <div className="password-error">{passwordError}</div>}
+            </div>
+            <button type="submit" className="btn-gold" style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
+              Continue →
+            </button>
+          </form>
+          <div className="login-footer">DUBAI · UAE · ROYAL TRACK LLC</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== RENDER: USER SELECTION =====
   if (!currentUser) {
     return (
       <div className="login-screen">
         <div className="login-card">
           <div className="login-brand">
-            <div className="login-crest">RT</div>
-            <div className="login-title">Royal Track</div>
-            <div className="login-subtitle">Building Contracting · CRM</div>
+            <img src="/logo.png" alt="Royal Track Building Contracting" className="login-logo" />
           </div>
           <div className="login-eyebrow">Select your account</div>
           <div className="user-list">
@@ -497,7 +618,9 @@ export default function Page() {
               </button>
             ))}
           </div>
-          <div className="login-footer">DUBAI · UAE · ROYAL TRACK LLC</div>
+          <div className="login-footer">
+            <button className="lock-link" onClick={handleFullLogout}>🔒 Lock CRM</button>
+          </div>
         </div>
       </div>
     );
@@ -512,10 +635,8 @@ export default function Page() {
       {/* Top bar */}
       <div className="topbar">
         <div className="brand">
-          <div className="brand-crest">RT</div>
-          <div className="brand-text">
-            <div className="brand-name">Royal Track</div>
-            <div className="brand-tag">CRM</div>
+          <div className="brand-logo-wrap">
+            <img src="/logo.png" alt="Royal Track" className="brand-logo-img" />
           </div>
         </div>
         <div className="nav-tabs">
@@ -567,6 +688,27 @@ export default function Page() {
             <option value="all">All sources</option>
             {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <div className="date-range">
+            <span className="date-range-label">📅 From</span>
+            <input
+              type="date"
+              className="date-input"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              max={dateTo || undefined}
+            />
+            <span className="date-range-label">To</span>
+            <input
+              type="date"
+              className="date-input"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+            />
+            {(dateFrom || dateTo) && (
+              <button className="date-clear" onClick={clearDateRange} title="Clear date range">×</button>
+            )}
+          </div>
           <div className="view-toggle">
             <button
               className={viewMode === 'kanban' ? 'active' : ''}
@@ -577,8 +719,25 @@ export default function Page() {
               onClick={() => { setViewMode('list'); setTopView('pipeline'); }}
             >📋 List</button>
           </div>
+          <button className="btn-secondary" onClick={() => setImportModalOpen(true)} title="Import from Excel/CSV">
+            📥 Import
+          </button>
           <button className="btn-primary" onClick={() => openLeadModal()}>+ New Lead</button>
         </div>
+
+        {hasActiveFilters && (
+          <div className="filter-summary">
+            <span>Showing <strong>{getFilteredLeads().length}</strong> of <strong>{leads.length}</strong> leads</span>
+            {(dateFrom || dateTo) && (
+              <span className="filter-chip">
+                📅 {dateFrom || '...'} → {dateTo || '...'}
+              </span>
+            )}
+            <button className="btn-ghost" onClick={() => {
+              setSearch(''); setFilterUser('all'); setFilterSource('all'); clearDateRange();
+            }}>Clear all filters</button>
+          </div>
+        )}
 
         <div className="content">
           {loading ? (
@@ -587,7 +746,7 @@ export default function Page() {
               <div>Loading your leads...</div>
             </div>
           ) : topView === 'dashboard' ? (
-            <DashboardView leads={leads} />
+            <DashboardView leads={filteredLeads} totalLeadsCount={leads.length} />
           ) : viewMode === 'kanban' ? (
             <PipelineView
               leads={filteredLeads}
@@ -635,7 +794,17 @@ export default function Page() {
           onClose={() => setDetailLeadId(null)}
           onUploadFiles={(files) => handleFileUpload(detailLead.id, files)}
           onDeleteAttachment={(attachmentId) => deleteAttachment(detailLead.id, attachmentId)}
+          onDeleteActivity={(activityId) => deleteActivity(detailLead.id, activityId)}
           uploadingFile={uploadingFile}
+        />
+      )}
+
+      {/* Import modal */}
+      {importModalOpen && (
+        <ImportModal
+          currentUser={currentUser}
+          onImport={importLeads}
+          onClose={() => setImportModalOpen(false)}
         />
       )}
 
@@ -799,12 +968,13 @@ function ListView({ leads, allLeadsCount, onSelectLead, onAddFirst }) {
   );
 }
 
-function DashboardView({ leads }) {
+function DashboardView({ leads, totalLeadsCount }) {
   const won = leads.filter(l => l.stage === 'won');
   const active = leads.filter(l => l.stage !== 'won' && l.stage !== 'lost');
   const pipelineValue = active.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
   const wonValue = won.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
   const conversionRate = leads.length ? Math.round((won.length / leads.length) * 100) : 0;
+  const isFiltered = totalLeadsCount && totalLeadsCount !== leads.length;
 
   const userStats = USERS.map(u => {
     const userLeads = leads.filter(l => l.assignedTo === u.name);
@@ -829,9 +999,11 @@ function DashboardView({ leads }) {
     <>
       <div className="stats-grid">
         <div className="stat-card" style={{ '--accent-color': 'var(--info)' }}>
-          <div className="stat-label">Total Leads</div>
+          <div className="stat-label">{isFiltered ? 'Filtered Inquiries' : 'Total Leads'}</div>
           <div className="stat-value">{leads.length}</div>
-          <div className="stat-sub">{active.length} active</div>
+          <div className="stat-sub">
+            {isFiltered ? `of ${totalLeadsCount} total` : `${active.length} active`}
+          </div>
         </div>
         <div className="stat-card" style={{ '--accent-color': 'var(--gold)' }}>
           <div className="stat-label">Pipeline Value</div>
@@ -974,7 +1146,7 @@ function DetailModal({
   lead, currentUser, newActivityType, setNewActivityType,
   newActivityText, setNewActivityText,
   onAddActivity, onChangeStage, onEdit, onDelete, onClose,
-  onUploadFiles, onDeleteAttachment, uploadingFile
+  onUploadFiles, onDeleteAttachment, onDeleteActivity, uploadingFile
 }) {
   const stage = getStage(lead.stage);
   const stageIdx = STAGES.findIndex(s => s.id === lead.stage);
@@ -1110,7 +1282,16 @@ function DetailModal({
                             <span style={{ margin: '0 6px' }}>·</span>
                             <span style={{ textTransform: 'capitalize' }}>{a.type}</span>
                           </div>
-                          <div title={formatDate(a.timestamp)}>{relativeTime(a.timestamp)}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span title={formatDate(a.timestamp)}>{relativeTime(a.timestamp)}</span>
+                            {a.type !== 'stage' && (
+                              <button
+                                className="timeline-delete"
+                                onClick={() => onDeleteActivity(a.id)}
+                                title="Delete this entry"
+                              >×</button>
+                            )}
+                          </div>
                         </div>
                         <div className="timeline-text">{a.content}</div>
                       </div>
@@ -1256,6 +1437,275 @@ function FileCard({ file, onDelete }) {
           </div>
         </div>
       </a>
+    </div>
+  );
+}
+
+/* ===== EXCEL/CSV IMPORT MODAL ===== */
+const FIELD_HINTS = {
+  name: ['name', 'client', 'customer', 'full name', 'client name', 'customer name', 'lead name'],
+  phone: ['phone', 'mobile', 'contact', 'number', 'cell', 'tel', 'whatsapp'],
+  email: ['email', 'e-mail', 'mail'],
+  location: ['location', 'area', 'city', 'address', 'place', 'region'],
+  source: ['source', 'channel', 'platform', 'from', 'origin', 'lead source'],
+  lookingFor: ['requirement', 'looking for', 'project', 'work', 'service', 'description', 'details', 'enquiry', 'inquiry', 'notes'],
+  value: ['value', 'budget', 'amount', 'cost', 'price', 'aed', 'estimate', 'deal value'],
+  stage: ['stage', 'status', 'state'],
+  assignedTo: ['assigned', 'owner', 'sales', 'rep', 'agent', 'salesperson'],
+  date: ['date', 'created', 'inquiry date', 'lead date', 'received', 'created at'],
+};
+
+function autoDetectMapping(headers) {
+  const mapping = {};
+  const lowerHeaders = headers.map(h => (h || '').toString().toLowerCase().trim());
+
+  for (const [field, hints] of Object.entries(FIELD_HINTS)) {
+    for (const hint of hints) {
+      const idx = lowerHeaders.findIndex(h => h === hint || h.includes(hint));
+      if (idx !== -1) {
+        mapping[field] = headers[idx];
+        break;
+      }
+    }
+  }
+  return mapping;
+}
+
+function ImportModal({ currentUser, onImport, onClose }) {
+  const [fileName, setFileName] = useState('');
+  const [headers, setHeaders] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [mapping, setMapping] = useState({});
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setParsing(true);
+    setError('');
+    setFileName(file.name);
+
+    try {
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, defval: '' });
+
+      if (data.length < 2) {
+        setError('File appears empty or has no data rows.');
+        setParsing(false);
+        return;
+      }
+
+      const fileHeaders = data[0].map(h => (h || '').toString().trim()).filter(h => h);
+      const fileRows = data.slice(1).filter(row => row.some(c => c !== '' && c != null));
+
+      setHeaders(fileHeaders);
+      setRows(fileRows);
+      setMapping(autoDetectMapping(fileHeaders));
+    } catch (err) {
+      console.error('Parse error:', err);
+      setError('Could not read file. Please make sure it is a valid Excel or CSV file.');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const getRowValue = (row, fieldName) => {
+    const col = mapping[fieldName];
+    if (!col) return '';
+    const idx = headers.indexOf(col);
+    if (idx === -1) return '';
+    return (row[idx] || '').toString().trim();
+  };
+
+  const parseDate = (v) => {
+    if (!v) return null;
+    if (v instanceof Date && !isNaN(v.getTime())) return v.getTime();
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return d.getTime();
+    return null;
+  };
+
+  const handleImport = () => {
+    if (!mapping.name) {
+      setError('Please map the "Name" field — it is required.');
+      return;
+    }
+
+    const newLeads = rows.map(row => {
+      const dateValue = parseDate(getRowValue(row, 'date'));
+      const stageValue = (getRowValue(row, 'stage') || '').toLowerCase();
+      const matchedStage = STAGES.find(s =>
+        s.id === stageValue || s.name.toLowerCase() === stageValue
+      );
+      const assignedRaw = getRowValue(row, 'assignedTo');
+      const matchedUser = USERS.find(u =>
+        u.name.toLowerCase() === assignedRaw.toLowerCase() ||
+        u.name.toLowerCase().includes(assignedRaw.toLowerCase())
+      );
+
+      const lead = {
+        id: 'l_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9),
+        name: getRowValue(row, 'name'),
+        phone: getRowValue(row, 'phone'),
+        email: getRowValue(row, 'email'),
+        location: getRowValue(row, 'location'),
+        source: getRowValue(row, 'source') || 'Imported',
+        lookingFor: getRowValue(row, 'lookingFor'),
+        value: parseFloat(getRowValue(row, 'value').replace(/[^0-9.]/g, '')) || 0,
+        stage: matchedStage ? matchedStage.id : 'new',
+        assignedTo: matchedUser ? matchedUser.name : currentUser,
+        createdBy: currentUser,
+        createdAt: dateValue || Date.now(),
+        updatedAt: Date.now(),
+        activities: [{
+          id: 'a_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9),
+          type: 'note',
+          content: `Imported from Excel by ${currentUser}`,
+          user: currentUser,
+          timestamp: Date.now(),
+        }],
+      };
+      return lead;
+    }).filter(l => l.name);
+
+    if (newLeads.length === 0) {
+      setError('No valid rows found. Make sure the Name column has values.');
+      return;
+    }
+
+    onImport(newLeads);
+  };
+
+  const fields = [
+    { id: 'name', label: 'Client Name', required: true },
+    { id: 'phone', label: 'Phone' },
+    { id: 'email', label: 'Email' },
+    { id: 'location', label: 'Location / Area' },
+    { id: 'source', label: 'Source' },
+    { id: 'lookingFor', label: 'Looking For / Requirement' },
+    { id: 'value', label: 'Value (AED)' },
+    { id: 'stage', label: 'Stage' },
+    { id: 'assignedTo', label: 'Assigned To' },
+    { id: 'date', label: 'Inquiry Date' },
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target.classList.contains('modal-overlay')) onClose(); }}>
+      <div className="modal modal-large">
+        <div className="modal-header">
+          <div className="modal-title">📥 Import Leads from Excel/CSV</div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          {headers.length === 0 ? (
+            <div>
+              <p style={{ marginBottom: 16, color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
+                Apni purani Excel sheet ya CSV file upload karein. Saare leads automatically import ho jayenge,
+                aur aap har column ko CRM ke fields ke saath manually map kar saktay hain.
+              </p>
+              <div style={{ background: 'var(--surface-2)', border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius)', padding: 30, textAlign: 'center' }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📊</div>
+                <label className="btn-gold" style={{ cursor: 'pointer', display: 'inline-flex' }}>
+                  Choose Excel / CSV File
+                  <input
+                    type="file"
+                    style={{ display: 'none' }}
+                    accept=".xlsx,.xls,.csv,.tsv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={handleFile}
+                  />
+                </label>
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                  Supports: .xlsx, .xls, .csv
+                </div>
+              </div>
+              {parsing && (
+                <div className="upload-progress" style={{ marginTop: 16 }}>
+                  <div className="spinner-small"></div>
+                  Reading file...
+                </div>
+              )}
+              {error && (
+                <div style={{ marginTop: 12, padding: 10, background: 'var(--danger-bg)', color: 'var(--danger)', borderRadius: 'var(--radius)', fontSize: 13 }}>
+                  ⚠ {error}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{fileName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rows.length} rows · {headers.length} columns detected</div>
+                </div>
+                <button className="btn-secondary" onClick={() => { setHeaders([]); setRows([]); setMapping({}); setFileName(''); }}>
+                  Choose Different File
+                </button>
+              </div>
+
+              <div className="detail-section-title" style={{ marginBottom: 10 }}>Map Excel columns to CRM fields</div>
+              <div className="import-mapping">
+                {fields.map(f => (
+                  <div className="import-mapping-row" key={f.id}>
+                    <label className="import-mapping-label">
+                      {f.label}
+                      {f.required && <span style={{ color: 'var(--danger)' }}> *</span>}
+                    </label>
+                    <select
+                      className="form-select"
+                      value={mapping[f.id] || ''}
+                      onChange={(e) => setMapping(m => ({ ...m, [f.id]: e.target.value }))}
+                    >
+                      <option value="">— Not mapped —</option>
+                      {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              <div className="detail-section-title" style={{ marginTop: 20, marginBottom: 10 }}>Preview (first 3 rows)</div>
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <table className="list-table" style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      {fields.filter(f => mapping[f.id]).map(f => (
+                        <th key={f.id}>{f.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.slice(0, 3).map((row, i) => (
+                      <tr key={i} style={{ cursor: 'default' }}>
+                        {fields.filter(f => mapping[f.id]).map(f => (
+                          <td key={f.id}>{getRowValue(row, f.id) || '—'}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {error && (
+                <div style={{ marginTop: 12, padding: 10, background: 'var(--danger-bg)', color: 'var(--danger)', borderRadius: 'var(--radius)', fontSize: 13 }}>
+                  ⚠ {error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          {headers.length > 0 && (
+            <button className="btn-gold" onClick={handleImport}>
+              Import {rows.length} Leads
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
