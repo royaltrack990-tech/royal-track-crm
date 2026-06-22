@@ -116,6 +116,35 @@ const lastActivityTime = (lead) => {
   return lead.createdAt;
 };
 
+// Convert URLs in text to clickable links
+// Detects http(s) URLs and www. URLs, returns array of strings and <a> elements
+function linkify(text) {
+  if (!text) return text;
+  const urlRegex = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part && part.match(/^(https?:\/\/|www\.)/i)) {
+      // Strip trailing punctuation that's usually not part of the URL
+      const trailingPunct = part.match(/[.,;:!?)]+$/);
+      const cleanUrl = trailingPunct ? part.slice(0, -trailingPunct[0].length) : part;
+      const href = cleanUrl.startsWith('www.') ? 'https://' + cleanUrl : cleanUrl;
+      return (
+        <span key={i}>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-link"
+            onClick={(e) => e.stopPropagation()}
+          >{cleanUrl}</a>
+          {trailingPunct ? trailingPunct[0] : ''}
+        </span>
+      );
+    }
+    return part;
+  });
+}
+
 /* ===== MAIN COMPONENT ===== */
 export default function Page() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -1175,7 +1204,7 @@ function DetailModal({
             <div>
               <div className="detail-name">{lead.name}</div>
               <div className="detail-subtitle">
-                {lead.lookingFor || 'No requirement details added yet'}
+                {lead.lookingFor ? linkify(lead.lookingFor) : 'No requirement details added yet'}
               </div>
             </div>
             <div className="detail-actions">
@@ -1295,7 +1324,7 @@ function DetailModal({
                             )}
                           </div>
                         </div>
-                        <div className="timeline-text">{a.content}</div>
+                        <div className="timeline-text">{linkify(a.content)}</div>
                       </div>
                     </div>
                   ))}
