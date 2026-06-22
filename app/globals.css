@@ -898,7 +898,21 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--gold); outl
   color: var(--text-muted);
 }
 .timeline-author { font-weight: 600; color: var(--text); }
-.timeline-text { font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
+.timeline-text { font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
+
+.inline-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 99, 235, 0.4);
+  text-underline-offset: 2px;
+  word-break: break-all;
+  transition: all 0.15s;
+}
+.inline-link:hover {
+  color: var(--navy);
+  text-decoration-color: var(--navy);
+  background: var(--info-bg);
+}
 
 /* ===== TOAST ===== */
 .toast {
