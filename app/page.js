@@ -9,14 +9,25 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 ============================================== */
 const MASTER_PASSWORD = 'royaltrack2026';
 
-/* ===== CONSTANTS ===== */
+/* ===== CONSTANTS =====
+   accessLevel: 'admin' = sees everything across the team
+   accessLevel: 'sales' = sees only leads they created OR were assigned to them
+============================================== */
 const USERS = [
-  { name: 'Mr. Nouman',          role: 'Sales Executive' },
-  { name: 'Mr. Bilal',           role: 'Sales Executive' },
-  { name: 'Mr. Zafar',           role: 'Sales Executive' },
-  { name: 'Mr. Husham',          role: 'Sales Executive' },
-  { name: 'Mr. Mohammad Yousaf', role: 'Sales Executive' },
+  { name: 'Mr. Nouman',          role: 'Admin',            accessLevel: 'admin' },
+  { name: 'Mr. Husham',          role: 'CEO',              accessLevel: 'admin' },
+  { name: 'Mr. Bilal',           role: 'Manager',          accessLevel: 'admin' },
+  { name: 'Mr. Zafar',           role: 'Sales Operations', accessLevel: 'admin' },
+  { name: 'Mr. Mohammad Yousaf', role: 'Sales Executive',  accessLevel: 'sales' },
 ];
+
+// Helpers for role-based access
+const getUserAccess = (name) => USERS.find(u => u.name === name)?.accessLevel || 'sales';
+const isAdminUser = (name) => getUserAccess(name) === 'admin';
+const canViewLead = (lead, userName) => {
+  if (isAdminUser(userName)) return true;
+  return lead.createdBy === userName || lead.assignedTo === userName;
+};
 
 const STAGES = [
   { id: 'new', name: 'New Inquiry', color: '#2563eb' },
@@ -378,6 +389,7 @@ export default function Page() {
         ...payload,
         createdBy: currentUser,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
         activities: [{
           id: actId(),
           type: 'stage',
@@ -386,7 +398,8 @@ export default function Page() {
           timestamp: Date.now(),
         }],
       };
-      setLeads(prev => [...prev, newLead]);
+      // Prepend new lead to the start of the array — combined with sort, ensures it always shows at top
+      setLeads(prev => [newLead, ...prev]);
       showToast('Lead added');
     }
 
@@ -551,14 +564,17 @@ export default function Page() {
   // ===== BULK IMPORT FROM EXCEL =====
   const importLeads = (newLeads) => {
     if (!newLeads || newLeads.length === 0) return;
-    setLeads(prev => [...prev, ...newLeads]);
+    setLeads(prev => [...newLeads, ...prev]);
     showToast(`Successfully imported ${newLeads.length} leads`);
     setImportModalOpen(false);
   };
 
   // ===== FILTERING =====
   const getFilteredLeads = () => {
-    let result = [...leads];
+    // 1. ROLE-BASED ACCESS — sales users only see their own/assigned leads.
+    //    Admin users see everything.
+    let result = leads.filter(l => canViewLead(l, currentUser));
+
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(l =>
@@ -693,7 +709,12 @@ export default function Page() {
           <button className="refresh-btn" onClick={() => fetchLeads()} title="Refresh">↻</button>
           <div className="topbar-user">
             <div className="user-avatar">{initials(currentUser)}</div>
-            <span>{currentUser}</span>
+            <div className="topbar-user-info">
+              <span className="topbar-user-name">{currentUser}</span>
+              <span className={'topbar-user-role ' + (isAdminUser(currentUser) ? 'role-admin' : 'role-sales')}>
+                {USERS.find(u => u.name === currentUser)?.role || ''}
+              </span>
+            </div>
           </div>
           <button className="logout-btn" onClick={handleLogout}>Log out</button>
         </div>
@@ -776,7 +797,7 @@ export default function Page() {
               <div>Loading your leads...</div>
             </div>
           ) : topView === 'dashboard' ? (
-            <DashboardView leads={filteredLeads} totalLeadsCount={leads.length} />
+            <DashboardView leads={filteredLeads} totalLeadsCount={leads.length} currentUser={currentUser} />
           ) : viewMode === 'kanban' ? (
             <PipelineView
               leads={filteredLeads}
@@ -1000,15 +1021,19 @@ function ListView({ leads, allLeadsCount, onSelectLead, onAddFirst }) {
   );
 }
 
-function DashboardView({ leads, totalLeadsCount }) {
+function DashboardView({ leads, totalLeadsCount, currentUser }) {
   const won = leads.filter(l => l.stage === 'won');
   const active = leads.filter(l => l.stage !== 'won' && l.stage !== 'lost');
   const pipelineValue = active.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
   const wonValue = won.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
   const conversionRate = leads.length ? Math.round((won.length / leads.length) * 100) : 0;
   const isFiltered = totalLeadsCount && totalLeadsCount !== leads.length;
+  const userIsAdmin = isAdminUser(currentUser);
 
-  const userStats = USERS.map(u => {
+  // For sales users: only show themselves in team performance (they can't see others' data anyway)
+  const visibleUsers = userIsAdmin ? USERS : USERS.filter(u => u.name === currentUser);
+
+  const userStats = visibleUsers.map(u => {
     const userLeads = leads.filter(l => l.assignedTo === u.name);
     const userWon = userLeads.filter(l => l.stage === 'won');
     return {
