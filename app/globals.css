@@ -231,6 +231,29 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--gold); outl
 }
 .topbar-user .user-avatar { width: 26px; height: 26px; font-size: 11px; }
 
+.topbar-user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.topbar-user-name {
+  color: white;
+  font-weight: 500;
+  font-size: 12px;
+}
+.topbar-user-role {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.topbar-user-role.role-admin {
+  color: var(--gold);
+}
+.topbar-user-role.role-sales {
+  color: rgba(255,255,255,0.55);
+}
+
 .sync-indicator {
   display: flex; align-items: center; gap: 6px;
   padding: 4px 10px;
@@ -1295,7 +1318,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--gold); outl
   .detail-body { grid-template-columns: 1fr; }
   .detail-main { border-right: none; border-bottom: 1px solid var(--border); }
   .stage-column { flex: 0 0 260px; }
-  .topbar-user span { display: none; }
+  .topbar-user span,
+  .topbar-user .topbar-user-info { display: none; }
   .sync-indicator span { display: none; }
   .date-range { flex-wrap: wrap; }
   .date-input { width: 100%; }
