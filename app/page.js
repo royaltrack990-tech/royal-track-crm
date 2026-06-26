@@ -11,10 +11,11 @@ const MASTER_PASSWORD = 'royaltrack2026';
 
 /* ===== CONSTANTS ===== */
 const USERS = [
-  { name: 'Mr. Nouman', role: 'Sales Executive' },
-  { name: 'Mr. Bilal',  role: 'Sales Executive' },
-  { name: 'Mr. Zafar',  role: 'Sales Executive' },
-  { name: 'Mr. Husham', role: 'Sales Executive' },
+  { name: 'Mr. Nouman',          role: 'Sales Executive' },
+  { name: 'Mr. Bilal',           role: 'Sales Executive' },
+  { name: 'Mr. Zafar',           role: 'Sales Executive' },
+  { name: 'Mr. Husham',          role: 'Sales Executive' },
+  { name: 'Mr. Mohammad Yousaf', role: 'Sales Executive' },
 ];
 
 const STAGES = [
