@@ -2,13 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/* ===== CONFIGURATION =====
-   ⚠️ TO CHANGE MASTER PASSWORD: Update the value below.
-   Sirf yeh password jaante hain Royal Track team ke log.
-   Without this password, koi bhi CRM access nahi kar sakta.
-============================================== */
-const MASTER_PASSWORD = 'royaltrack2026';
-
 /* ===== CONSTANTS =====
    accessLevel: 'admin' = sees everything across the team
    accessLevel: 'sales' = sees only leads they created OR were assigned to them
@@ -159,10 +152,11 @@ function linkify(text) {
 
 /* ===== MAIN COMPONENT ===== */
 export default function Page() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+  const [selectedLoginUser, setSelectedLoginUser] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -220,15 +214,11 @@ export default function Page() {
     }
   }, []);
 
-  // Initial load + restore user session + check master password
+  // Initial load + restore login from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Check master password (saved permanently in localStorage)
-      const authed = localStorage.getItem('rt_authenticated') === 'true';
-      setIsAuthenticated(authed);
-
-      // Restore current user session
-      const savedUser = sessionStorage.getItem('rt_current_user');
+      // Restore current user from localStorage (persists across browser sessions)
+      const savedUser = localStorage.getItem('rt_current_user');
       if (savedUser && USERS.find(u => u.name === savedUser)) {
         setCurrentUser(savedUser);
       }
@@ -285,36 +275,55 @@ export default function Page() {
     setTimeout(() => setToast(null), 2400);
   };
 
-  const handleMasterPassword = (e) => {
+  const handleLogin = async (e) => {
     if (e) e.preventDefault();
-    if (passwordInput === MASTER_PASSWORD) {
-      localStorage.setItem('rt_authenticated', 'true');
-      setIsAuthenticated(true);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Incorrect password. Please try again.');
-      setPasswordInput('');
+    if (!selectedLoginUser) {
+      setLoginError('Please select your account');
+      return;
+    }
+    if (!loginPassword) {
+      setLoginError('Please enter your password');
+      return;
+    }
+
+    setLoggingIn(true);
+    setLoginError('');
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: selectedLoginUser, password: loginPassword }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setLoginError(data.error || 'Login failed');
+        setLoginPassword('');
+        setLoggingIn(false);
+        return;
+      }
+
+      // Login successful — save to localStorage (persists across sessions)
+      localStorage.setItem('rt_current_user', data.user);
+      setCurrentUser(data.user);
+      setSelectedLoginUser('');
+      setLoginPassword('');
+      setLoginError('');
+      fetchLeads();
+    } catch (err) {
+      setLoginError('Connection error. Please try again.');
+    } finally {
+      setLoggingIn(false);
     }
   };
 
-  const handleLogin = (userName) => {
-    sessionStorage.setItem('rt_current_user', userName);
-    setCurrentUser(userName);
-    fetchLeads();
-  };
-
   const handleLogout = () => {
-    sessionStorage.removeItem('rt_current_user');
+    localStorage.removeItem('rt_current_user');
     setCurrentUser(null);
-  };
-
-  const handleFullLogout = () => {
-    if (!confirm('Full logout will require master password next time. Continue?')) return;
-    sessionStorage.removeItem('rt_current_user');
-    localStorage.removeItem('rt_authenticated');
-    setCurrentUser(null);
-    setIsAuthenticated(false);
+    setSelectedLoginUser('');
+    setLoginPassword('');
   };
 
   const openLeadModal = (leadId = null) => {
@@ -607,43 +616,11 @@ export default function Page() {
 
   const hasActiveFilters = !!(search || filterUser !== 'all' || filterSource !== 'all' || dateFrom || dateTo);
 
-  // ===== RENDER: MASTER PASSWORD =====
+  // ===== RENDER: LOGIN =====
   if (!authChecked) {
     return null; // Avoid flicker while checking auth state
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="login-screen">
-        <div className="login-card">
-          <div className="login-brand">
-            <img src="/logo.png" alt="Royal Track Building Contracting" className="login-logo" />
-          </div>
-          <div className="login-eyebrow">🔒 Secure Access · Authorized personnel only</div>
-          <form onSubmit={handleMasterPassword} className="master-password-form">
-            <div className="form-group">
-              <label className="form-label">Enter access password</label>
-              <input
-                type="password"
-                className="form-input"
-                value={passwordInput}
-                onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(''); }}
-                placeholder="••••••••"
-                autoFocus
-              />
-              {passwordError && <div className="password-error">{passwordError}</div>}
-            </div>
-            <button type="submit" className="btn-gold" style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
-              Continue →
-            </button>
-          </form>
-          <div className="login-footer">DUBAI · UAE · ROYAL TRACK LLC</div>
-        </div>
-      </div>
-    );
-  }
-
-  // ===== RENDER: USER SELECTION =====
   if (!currentUser) {
     return (
       <div className="login-screen">
@@ -651,22 +628,45 @@ export default function Page() {
           <div className="login-brand">
             <img src="/logo.png" alt="Royal Track Building Contracting" className="login-logo" />
           </div>
-          <div className="login-eyebrow">Select your account</div>
-          <div className="user-list">
-            {USERS.map(u => (
-              <button key={u.name} className="user-btn" onClick={() => handleLogin(u.name)}>
-                <div className="user-avatar">{initials(u.name)}</div>
-                <div className="user-info">
-                  <div className="user-name">{u.name}</div>
-                  <div className="user-role">{u.role}</div>
-                </div>
-                <div style={{ color: 'var(--gold)', fontSize: 18 }}>→</div>
-              </button>
-            ))}
-          </div>
-          <div className="login-footer">
-            <button className="lock-link" onClick={handleFullLogout}>🔒 Lock CRM</button>
-          </div>
+          <div className="login-eyebrow">Login to CRM</div>
+          <form onSubmit={handleLogin} className="login-form">
+            <div className="form-group">
+              <label className="form-label">Your account</label>
+              <select
+                className="form-select"
+                value={selectedLoginUser}
+                onChange={(e) => { setSelectedLoginUser(e.target.value); setLoginError(''); }}
+                disabled={loggingIn}
+              >
+                <option value="">— Select your account —</option>
+                {USERS.map(u => (
+                  <option key={u.name} value={u.name}>{u.name} ({u.role})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Your password</label>
+              <input
+                type="password"
+                className="form-input"
+                value={loginPassword}
+                onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
+                placeholder="Enter your password"
+                disabled={loggingIn}
+                autoComplete="current-password"
+              />
+            </div>
+            {loginError && <div className="password-error">{loginError}</div>}
+            <button
+              type="submit"
+              className="btn-gold"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: 8 }}
+              disabled={loggingIn}
+            >
+              {loggingIn ? 'Logging in...' : 'Login →'}
+            </button>
+          </form>
+          <div className="login-footer">DUBAI · UAE · ROYAL TRACK LLC</div>
         </div>
       </div>
     );
