@@ -97,7 +97,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--gold); outl
   margin: 0 auto 8px;
 }
 
-.master-password-form {
+.master-password-form,
+.login-form {
   display: flex;
   flex-direction: column;
   gap: 14px;
